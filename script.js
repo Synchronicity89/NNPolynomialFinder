@@ -3,6 +3,7 @@ const polynomialInput = document.querySelector('#polynomial-input');
 const sampleCountInput = document.querySelector('#sample-count');
 const epochCountInput = document.querySelector('#epoch-count');
 const learningRateInput = document.querySelector('#learning-rate');
+const trainingProfileInput = document.querySelector('#training-profile');
 const xMinInput = document.querySelector('#x-min');
 const xMaxInput = document.querySelector('#x-max');
 const randomizationInput = document.querySelector('#randomization');
@@ -20,7 +21,7 @@ const zoomOutButton = document.querySelector('#zoom-out');
 const zoomResetButton = document.querySelector('#zoom-reset');
 const zoomLevelLabel = document.querySelector('#zoom-level');
 
-if (!form || !polynomialInput || !sampleCountInput || !epochCountInput || !learningRateInput || !xMinInput || !xMaxInput || !randomizationInput || !integerModeInput || !integerMethodInput || !trainButton || !statusText || !targetEquation || !discoveredEquation || !sampleSummary || !lossSummary || !canvas || !zoomInButton || !zoomOutButton || !zoomResetButton || !zoomLevelLabel || !window.PolynomialFinder || !window.GraphViewport) {
+if (!form || !polynomialInput || !sampleCountInput || !epochCountInput || !learningRateInput || !trainingProfileInput || !xMinInput || !xMaxInput || !randomizationInput || !integerModeInput || !integerMethodInput || !trainButton || !statusText || !targetEquation || !discoveredEquation || !sampleSummary || !lossSummary || !canvas || !zoomInButton || !zoomOutButton || !zoomResetButton || !zoomLevelLabel || !window.PolynomialFinder || !window.GraphViewport) {
   throw new Error('Polynomial Finder UI did not initialize correctly.');
 }
 
@@ -30,6 +31,11 @@ const integerMethodLabels = {
   'project-each-epoch': 'projected rounding',
   'annealed-bias': 'progressive snapping',
   'post-train-local-search': 'rounding plus local integer search',
+};
+const trainingProfileLabels = {
+  'standard-sgd': 'Standard SGD',
+  'adaptive-rms': 'Adaptive step scaling',
+  'adaptive-rms-simplicity': 'Adaptive scaling with simplicity bias',
 };
 const graphState = {
   target: null,
@@ -45,6 +51,10 @@ const graphState = {
 
 function getIntegerMethodLabel(method) {
   return integerMethodLabels[method] || 'integer search';
+}
+
+function getTrainingProfileLabel(profile) {
+  return trainingProfileLabels[profile] || 'Adaptive step scaling';
 }
 
 function updateIntegerMethodAvailability() {
@@ -280,6 +290,9 @@ function updateSummary(target, model, loss, sampleCount) {
   const trainingMode = graphState.trainingOptions?.integerOnly
     ? `Integer mode: ${getIntegerMethodLabel(graphState.trainingOptions.integerMethod)}`
     : 'Continuous coefficients';
+  const trainingProfile = graphState.trainingOptions?.trainingProfile
+    ? ` | ${getTrainingProfileLabel(graphState.trainingOptions.trainingProfile)}`
+    : '';
   const coefficientThreshold = graphState.trainingOptions?.integerOnly ? 0 : 1e-5;
   const sampleRange = graphState.trainingOptions?.sampleRange || { min: -1, max: 1 };
   const randomization = graphState.trainingOptions?.randomization || 0;
@@ -287,7 +300,7 @@ function updateSummary(target, model, loss, sampleCount) {
 
   targetEquation.textContent = target ? window.PolynomialFinder.formatPolynomial(target.coefficients) : 'f(x) = 0';
   discoveredEquation.textContent = model ? window.PolynomialFinder.formatPolynomial(model.coefficients(coefficientThreshold)) : 'Waiting for training...';
-  sampleSummary.textContent = `${sampleCount} samples across x in [${formatRangeValue(sampleRange.min)}, ${formatRangeValue(sampleRange.max)}]${randomizationText} | ${trainingMode}`;
+  sampleSummary.textContent = `${sampleCount} samples across x in [${formatRangeValue(sampleRange.min)}, ${formatRangeValue(sampleRange.max)}]${randomizationText} | ${trainingMode}${trainingProfile}`;
   lossSummary.textContent = `Loss ${formatNumber(loss)}`;
 }
 
@@ -327,6 +340,7 @@ async function trainModel(target, sampleCount, epochs, learningRate, trainingOpt
   for (let epoch = 0; epoch < epochs; epoch += 1) {
     const loss = model.trainEpoch(samples, learningRate, {
       integerMethod: trainingOptions.integerOnly ? trainingOptions.integerMethod : 'continuous',
+      trainingProfile: trainingOptions.trainingProfile,
       epochProgress: epochs <= 1 ? 1 : epoch / (epochs - 1),
     });
     graphState.loss = loss;
@@ -384,6 +398,7 @@ async function handleSubmit(event) {
   const sampleCount = Number(sampleCountInput.value);
   const epochs = Number(epochCountInput.value);
   const learningRate = Number(learningRateInput.value);
+  const trainingProfile = trainingProfileInput.value;
   const xMin = Number(xMinInput.value);
   const xMax = Number(xMaxInput.value);
   const randomization = Number(randomizationInput.value);
@@ -402,6 +417,7 @@ async function handleSubmit(event) {
     const trainingOptions = {
       integerOnly: integerModeInput.checked,
       integerMethod: integerMethodInput.value,
+      trainingProfile,
       sampleRange: { min: xMin, max: xMax },
       randomization,
     };
@@ -412,6 +428,7 @@ async function handleSubmit(event) {
     sampleCountInput.disabled = true;
     epochCountInput.disabled = true;
     learningRateInput.disabled = true;
+    trainingProfileInput.disabled = true;
     xMinInput.disabled = true;
     xMaxInput.disabled = true;
     randomizationInput.disabled = true;
@@ -421,8 +438,8 @@ async function handleSubmit(event) {
     discoveredEquation.textContent = 'Training in progress...';
     setStatus(
       trainingOptions.integerOnly
-        ? `Generating samples and fitting the model with ${getIntegerMethodLabel(trainingOptions.integerMethod)}.`
-        : 'Generating samples and fitting the model.'
+        ? `Generating samples and fitting the model with ${getIntegerMethodLabel(trainingOptions.integerMethod)} and ${getTrainingProfileLabel(trainingOptions.trainingProfile)}.`
+        : `Generating samples and fitting the model with ${getTrainingProfileLabel(trainingOptions.trainingProfile)}.`
     );
 
     await trainModel(target, sampleCount, epochs, learningRate, trainingOptions);
@@ -435,6 +452,7 @@ async function handleSubmit(event) {
     sampleCountInput.disabled = false;
     epochCountInput.disabled = false;
     learningRateInput.disabled = false;
+    trainingProfileInput.disabled = false;
     xMinInput.disabled = false;
     xMaxInput.disabled = false;
     randomizationInput.disabled = false;

@@ -369,6 +369,9 @@
             this.normalization = normalization;
             this.weights = new Float64Array(degree + 1);
             this.shadowWeights = new Float64Array(degree + 1);
+            this.firstMoments = new Float64Array(degree + 1);
+            this.secondMoments = new Float64Array(degree + 1);
+            this.adaptiveStepCount = 0;
 
             for (let index = 0; index <= degree; index += 1) {
                 const initialWeight = (Math.random() - 0.5) * 0.01;
@@ -428,11 +431,53 @@
             }
         }
 
+        applyAdaptiveGradients(gradients, learningRate, options = {}) {
+            const beta1 = options.beta1 || 0.9;
+            const beta2 = options.beta2 || 0.999;
+            const epsilon = options.epsilon || 1e-8;
+            const weightDecay = options.weightDecay || 0;
+            const simplicityBias = options.simplicityBias || 0;
+            const applyToShadowWeights = options.applyToShadowWeights || false;
+            const progress = Math.max(0, Math.min(1, options.epochProgress || 0));
+            const decayRamp = 1 - progress * 0.35;
+            const targetWeights = applyToShadowWeights ? this.shadowWeights : this.weights;
+
+            this.adaptiveStepCount += 1;
+            const biasCorrection1 = 1 - Math.pow(beta1, this.adaptiveStepCount);
+            const biasCorrection2 = 1 - Math.pow(beta2, this.adaptiveStepCount);
+
+            for (let degree = 0; degree <= this.degree; degree += 1) {
+                const degreeScale = this.degree <= 0 ? 0 : degree / this.degree;
+                let gradient = gradients[degree] + targetWeights[degree] * weightDecay;
+
+                if (simplicityBias > 0 && degree > 1) {
+                    gradient += targetWeights[degree] * simplicityBias * degreeScale * decayRamp;
+                }
+
+                this.firstMoments[degree] = beta1 * this.firstMoments[degree] + (1 - beta1) * gradient;
+                this.secondMoments[degree] = beta2 * this.secondMoments[degree] + (1 - beta2) * gradient * gradient;
+
+                const correctedFirstMoment = this.firstMoments[degree] / biasCorrection1;
+                const correctedSecondMoment = this.secondMoments[degree] / biasCorrection2;
+                targetWeights[degree] -= learningRate * correctedFirstMoment / (Math.sqrt(correctedSecondMoment) + epsilon);
+            }
+
+            if (applyToShadowWeights) {
+                this.applyWeights(roundWeights(this.shadowWeights));
+                return;
+            }
+
+            for (let degree = 0; degree <= this.degree; degree += 1) {
+                this.shadowWeights[degree] = this.weights[degree];
+            }
+        }
+
         trainEpoch(samples, learningRate, options = {}) {
             const gradients = new Float64Array(this.degree + 1);
             let loss = 0;
             const useProjectedWeights = options.integerMethod === 'project-each-epoch';
             const activeWeights = useProjectedWeights ? roundWeights(this.shadowWeights) : this.weights;
+            const trainingProfile = options.trainingProfile || 'standard-sgd';
 
             for (const sample of samples) {
                 const predicted = this.predictFeatureWithWeights(sample.featureX, activeWeights);
@@ -447,23 +492,48 @@
             }
 
             if (useProjectedWeights) {
-                for (let degree = 0; degree <= this.degree; degree += 1) {
-                    this.shadowWeights[degree] -= learningRate * gradients[degree];
-                }
+                if (trainingProfile === 'adaptive-rms' || trainingProfile === 'adaptive-rms-simplicity') {
+                    this.applyAdaptiveGradients(gradients, learningRate, {
+                        applyToShadowWeights: true,
+                        epochProgress: options.epochProgress,
+                        simplicityBias: trainingProfile === 'adaptive-rms-simplicity' ? 0.0015 : 0,
+                        weightDecay: trainingProfile === 'adaptive-rms-simplicity' ? 0.00015 : 0.00005,
+                    });
+                } else {
+                    for (let degree = 0; degree <= this.degree; degree += 1) {
+                        this.shadowWeights[degree] -= learningRate * gradients[degree];
+                    }
 
-                this.applyWeights(roundWeights(this.shadowWeights));
+                    this.applyWeights(roundWeights(this.shadowWeights));
+                }
             } else if (options.integerMethod === 'annealed-bias') {
-                for (let degree = 0; degree <= this.degree; degree += 1) {
-                    this.weights[degree] -= learningRate * gradients[degree];
+                if (trainingProfile === 'adaptive-rms' || trainingProfile === 'adaptive-rms-simplicity') {
+                    this.applyAdaptiveGradients(gradients, learningRate, {
+                        epochProgress: options.epochProgress,
+                        simplicityBias: trainingProfile === 'adaptive-rms-simplicity' ? 0.0015 : 0,
+                        weightDecay: trainingProfile === 'adaptive-rms-simplicity' ? 0.00015 : 0.00005,
+                    });
+                } else {
+                    for (let degree = 0; degree <= this.degree; degree += 1) {
+                        this.weights[degree] -= learningRate * gradients[degree];
+                    }
                 }
 
                 const progress = Math.max(0, Math.min(1, options.epochProgress || 0));
                 const pullStrength = 0.04 + progress * 0.24;
                 this.pullWeightsTowardIntegers(pullStrength);
             } else {
-                for (let degree = 0; degree <= this.degree; degree += 1) {
-                    this.weights[degree] -= learningRate * gradients[degree];
-                    this.shadowWeights[degree] = this.weights[degree];
+                if (trainingProfile === 'adaptive-rms' || trainingProfile === 'adaptive-rms-simplicity') {
+                    this.applyAdaptiveGradients(gradients, learningRate, {
+                        epochProgress: options.epochProgress,
+                        simplicityBias: trainingProfile === 'adaptive-rms-simplicity' ? 0.0015 : 0,
+                        weightDecay: trainingProfile === 'adaptive-rms-simplicity' ? 0.00015 : 0.00005,
+                    });
+                } else {
+                    for (let degree = 0; degree <= this.degree; degree += 1) {
+                        this.weights[degree] -= learningRate * gradients[degree];
+                        this.shadowWeights[degree] = this.weights[degree];
+                    }
                 }
             }
 

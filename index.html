@@ -42,6 +42,14 @@
             <span>Learning rate</span>
             <input id="learning-rate" type="number" min="0.001" max="0.2" step="0.001" value="0.045" />
           </label>
+          <label class="field">
+            <span>Training profile</span>
+            <select id="training-profile">
+              <option value="standard-sgd">Standard SGD</option>
+              <option value="adaptive-rms" selected>Adaptive step scaling</option>
+              <option value="adaptive-rms-simplicity">Adaptive scaling + simplicity bias</option>
+            </select>
+          </label>
         </div>
 
         <div class="sample-config-grid">
