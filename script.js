@@ -16,12 +16,13 @@ const discoveredEquation = document.querySelector('#discovered-equation');
 const sampleSummary = document.querySelector('#sample-summary');
 const lossSummary = document.querySelector('#loss-summary');
 const canvas = document.querySelector('#graph-canvas');
+const graphCoordinates = document.querySelector('#graph-coordinates');
 const zoomInButton = document.querySelector('#zoom-in');
 const zoomOutButton = document.querySelector('#zoom-out');
 const zoomResetButton = document.querySelector('#zoom-reset');
 const zoomLevelLabel = document.querySelector('#zoom-level');
 
-if (!form || !polynomialInput || !sampleCountInput || !epochCountInput || !learningRateInput || !trainingProfileInput || !xMinInput || !xMaxInput || !randomizationInput || !integerModeInput || !integerMethodInput || !trainButton || !statusText || !targetEquation || !discoveredEquation || !sampleSummary || !lossSummary || !canvas || !zoomInButton || !zoomOutButton || !zoomResetButton || !zoomLevelLabel || !window.PolynomialFinder || !window.GraphViewport) {
+if (!form || !polynomialInput || !sampleCountInput || !epochCountInput || !learningRateInput || !trainingProfileInput || !xMinInput || !xMaxInput || !randomizationInput || !integerModeInput || !integerMethodInput || !trainButton || !statusText || !targetEquation || !discoveredEquation || !sampleSummary || !lossSummary || !canvas || !graphCoordinates || !zoomInButton || !zoomOutButton || !zoomResetButton || !zoomLevelLabel || !window.PolynomialFinder || !window.GraphViewport) {
   throw new Error('Polynomial Finder UI did not initialize correctly.');
 }
 
@@ -47,6 +48,7 @@ const graphState = {
   training: false,
   integerModeUserOverride: false,
   trainingOptions: null,
+  bounds: { min: -1, max: 1 },
 };
 
 function getIntegerMethodLabel(method) {
@@ -96,6 +98,11 @@ function formatNumber(value) {
 function formatRangeValue(value) {
   const rounded = Number(value.toFixed(2));
   return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+}
+
+function formatAxisValue(value) {
+  const rounded = Number(value.toFixed(3));
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(3).replace(/0+$/, '').replace(/\.$/, '');
 }
 
 function getDiscoveredEvaluator() {
@@ -152,6 +159,30 @@ function drawAxes(bounds) {
     context.stroke();
   }
 
+  context.fillStyle = 'rgba(244, 239, 232, 0.78)';
+  context.font = '12px "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif';
+  context.textAlign = 'center';
+  context.textBaseline = 'top';
+
+  for (const vertical of lines.vertical) {
+    context.fillText(
+      formatAxisValue(vertical.value),
+      vertical.x,
+      metrics.height - metrics.padding.bottom + 8,
+    );
+  }
+
+  context.textAlign = 'right';
+  context.textBaseline = 'middle';
+
+  for (const horizontal of lines.horizontal) {
+    context.fillText(
+      formatAxisValue(horizontal.value),
+      metrics.padding.left - 8,
+      horizontal.y,
+    );
+  }
+
   return lines.metrics;
 }
 
@@ -201,6 +232,7 @@ function renderGraph() {
   context.fillRect(0, 0, width, height);
 
   const bounds = getBounds();
+  graphState.bounds = bounds;
   drawAxes(bounds);
 
   if (graphState.target) {
@@ -215,6 +247,33 @@ function renderGraph() {
   if (graphState.samples.length > 0) {
     drawSamples(bounds);
   }
+}
+
+function resetGraphCoordinates() {
+  graphCoordinates.textContent = 'x: -, y: -';
+}
+
+function updateGraphCoordinates(event) {
+  if (!graphState.target) {
+    resetGraphCoordinates();
+    return;
+  }
+
+  const rect = canvas.getBoundingClientRect();
+  if (!graphViewport.isPointInPlotArea(event.clientX, event.clientY, rect, canvas.clientWidth, canvas.clientHeight)) {
+    resetGraphCoordinates();
+    return;
+  }
+
+  const point = graphViewport.toDomainPoint(
+    event.clientX - rect.left,
+    event.clientY - rect.top,
+    graphState.bounds,
+    canvas.clientWidth,
+    canvas.clientHeight,
+  );
+
+  graphCoordinates.textContent = `x: ${formatAxisValue(point.x)}, y: ${formatAxisValue(point.y)}`;
 }
 
 function beginDrag(clientX, pointerId = null) {
@@ -506,6 +565,8 @@ canvas.addEventListener('pointermove', handlePointerMove);
 canvas.addEventListener('pointerup', handlePointerEnd);
 canvas.addEventListener('pointercancel', handlePointerEnd);
 canvas.addEventListener('mousedown', handleMouseDown);
+canvas.addEventListener('mousemove', updateGraphCoordinates);
+canvas.addEventListener('mouseleave', resetGraphCoordinates);
 window.addEventListener('mousemove', handleMouseMove);
 window.addEventListener('mouseup', handleMouseUp);
 window.addEventListener('resize', resizeCanvas);

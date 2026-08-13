@@ -5,6 +5,33 @@
     return { min: domain.min, max: domain.max };
   }
 
+  function isFiniteNumber(value) {
+    return Number.isFinite(value);
+  }
+
+  function normalizeDomain(domain, fallbackSpan = 1) {
+    const safeSpan = Math.max(Math.abs(fallbackSpan) || 1, 1e-9);
+
+    if (!domain || !isFiniteNumber(domain.min) || !isFiniteNumber(domain.max)) {
+      return { min: -safeSpan / 2, max: safeSpan / 2 };
+    }
+
+    if (domain.min === domain.max) {
+      return {
+        min: domain.min - safeSpan / 2,
+        max: domain.max + safeSpan / 2,
+      };
+    }
+
+    return domain.min < domain.max
+      ? cloneDomain(domain)
+      : { min: domain.max, max: domain.min };
+  }
+
+  function normalizeBounds(bounds) {
+    return normalizeDomain(bounds, 2);
+  }
+
   function mapRange(value, inputMin, inputMax, outputMin, outputMax) {
     if (inputMax === inputMin) {
       return outputMin;
@@ -77,13 +104,13 @@
       this.maxSpan = options.maxSpan || 64;
       this.padding = { ...DEFAULT_PADDING, ...(options.padding || {}) };
       this.drag = null;
-      this.defaultDomain = cloneDomain(defaultDomain);
-      this.domain = cloneDomain(defaultDomain);
+      this.defaultDomain = normalizeDomain(defaultDomain, this.minSpan);
+      this.domain = cloneDomain(this.defaultDomain);
     }
 
     setDefaultDomain(domain) {
-      this.defaultDomain = cloneDomain(domain);
-      this.domain = cloneDomain(domain);
+      this.defaultDomain = normalizeDomain(domain, this.minSpan);
+      this.domain = cloneDomain(this.defaultDomain);
       this.drag = null;
       return this.getDomain();
     }
@@ -96,8 +123,28 @@
       return createPlotMetrics(width, height, this.padding);
     }
 
+    toScreenPoint(domainX, domainY, bounds, width, height) {
+      const metrics = this.getPlotMetrics(width, height);
+      const safeBounds = normalizeBounds(bounds);
+
+      return {
+        x: mapRange(domainX, this.domain.min, this.domain.max, metrics.padding.left, width - metrics.padding.right),
+        y: mapRange(domainY, safeBounds.min, safeBounds.max, height - metrics.padding.bottom, metrics.padding.top),
+      };
+    }
+
+    toDomainPoint(screenX, screenY, bounds, width, height) {
+      const metrics = this.getPlotMetrics(width, height);
+      const safeBounds = normalizeBounds(bounds);
+
+      return {
+        x: mapRange(screenX, metrics.padding.left, width - metrics.padding.right, this.domain.min, this.domain.max),
+        y: mapRange(screenY, height - metrics.padding.bottom, metrics.padding.top, safeBounds.min, safeBounds.max),
+      };
+    }
+
     setDomain(min, max) {
-      this.domain = { min, max };
+      this.domain = normalizeDomain({ min, max }, this.minSpan);
       return this.getDomain();
     }
 
@@ -107,7 +154,13 @@
 
     getZoomPercent() {
       const defaultSpan = this.defaultDomain.max - this.defaultDomain.min;
-      return Math.round((defaultSpan / this.currentSpan()) * 100);
+      const span = this.currentSpan();
+
+      if (!isFiniteNumber(span) || span <= 0) {
+        return 100;
+      }
+
+      return Math.round((defaultSpan / span) * 100);
     }
 
     reset() {
@@ -118,15 +171,23 @@
 
     zoom(scaleFactor, anchorRatio = 0.5) {
       const span = this.currentSpan();
+      const safeScaleFactor = isFiniteNumber(scaleFactor) && scaleFactor > 0 ? scaleFactor : 1;
+      const safeAnchorRatio = isFiniteNumber(anchorRatio) ? Math.max(0, Math.min(1, anchorRatio)) : 0.5;
       const nextSpan = Math.max(this.minSpan, Math.min(this.maxSpan, span * scaleFactor));
 
-      if (Math.abs(nextSpan - span) < 1e-9) {
+      if (!isFiniteNumber(span) || span <= 0) {
+        return this.reset();
+      }
+
+      const clampedSpan = Math.max(this.minSpan, Math.min(this.maxSpan, span * safeScaleFactor));
+
+      if (Math.abs(clampedSpan - span) < 1e-9) {
         return this.getDomain();
       }
 
-      const anchorX = this.domain.min + span * anchorRatio;
-      const nextMin = anchorX - nextSpan * anchorRatio;
-      return this.setDomain(nextMin, nextMin + nextSpan);
+      const anchorX = this.domain.min + span * safeAnchorRatio;
+      const nextMin = anchorX - clampedSpan * safeAnchorRatio;
+      return this.setDomain(nextMin, nextMin + clampedSpan);
     }
 
     startDrag(clientX, pointerId = null) {
@@ -180,16 +241,26 @@
         return { min: -1, max: 1 };
       }
 
+      const safeSteps = Math.max(1, Math.floor(Number.isFinite(steps) ? steps : 240));
+
       let min = Infinity;
       let max = -Infinity;
 
-      for (let index = 0; index <= steps; index += 1) {
-        const x = this.domain.min + ((this.domain.max - this.domain.min) * index) / steps;
+      for (let index = 0; index <= safeSteps; index += 1) {
+        const x = this.domain.min + ((this.domain.max - this.domain.min) * index) / safeSteps;
         const targetValue = targetEvaluator(x);
         const discoveredValue = discoveredEvaluator ? discoveredEvaluator(x) : targetValue;
 
+        if (!isFiniteNumber(targetValue) || !isFiniteNumber(discoveredValue)) {
+          continue;
+        }
+
         min = Math.min(min, targetValue, discoveredValue);
         max = Math.max(max, targetValue, discoveredValue);
+      }
+
+      if (!isFiniteNumber(min) || !isFiniteNumber(max)) {
+        return { min: -1, max: 1 };
       }
 
       if (min === max) {
@@ -209,14 +280,14 @@
         metrics,
         vertical: xTicks.map((value) => ({
           value,
-          x: mapRange(value, this.domain.min, this.domain.max, metrics.padding.left, width - metrics.padding.right),
+          x: this.toScreenPoint(value, bounds.min, bounds, width, height).x,
         })),
         horizontal: yTicks.map((value) => ({
           value,
-          y: mapRange(value, bounds.min, bounds.max, height - metrics.padding.bottom, metrics.padding.top),
+          y: this.toScreenPoint(this.domain.min, value, bounds, width, height).y,
         })),
-        zeroX: mapRange(0, this.domain.min, this.domain.max, metrics.padding.left, width - metrics.padding.right),
-        zeroY: mapRange(0, bounds.min, bounds.max, height - metrics.padding.bottom, metrics.padding.top),
+        zeroX: this.toScreenPoint(0, bounds.min, bounds, width, height).x,
+        zeroY: this.toScreenPoint(this.domain.min, 0, bounds, width, height).y,
       };
     }
 
@@ -227,9 +298,10 @@
       for (let index = 0; index <= steps; index += 1) {
         const domainX = this.domain.min + ((this.domain.max - this.domain.min) * index) / steps;
         const domainY = evaluator(domainX);
+        const point = this.toScreenPoint(domainX, domainY, bounds, width, height);
         points.push({
-          x: metrics.padding.left + ((domainX - this.domain.min) / (this.domain.max - this.domain.min)) * metrics.plotWidth,
-          y: metrics.padding.top + ((bounds.max - domainY) / (bounds.max - bounds.min)) * metrics.plotHeight,
+          x: point.x,
+          y: point.y,
           domainX,
           domainY,
         });
@@ -243,11 +315,14 @@
 
       return {
         metrics,
-        points: samples.map((sample) => ({
-          x: metrics.padding.left + ((sample.x - this.domain.min) / (this.domain.max - this.domain.min)) * metrics.plotWidth,
-          y: metrics.padding.top + ((bounds.max - sample.y) / (bounds.max - bounds.min)) * metrics.plotHeight,
-          sample,
-        })),
+        points: samples.map((sample) => {
+          const point = this.toScreenPoint(sample.x, sample.y, bounds, width, height);
+          return {
+            x: point.x,
+            y: point.y,
+            sample,
+          };
+        }),
       };
     }
   }

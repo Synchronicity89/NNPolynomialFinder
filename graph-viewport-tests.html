@@ -33,10 +33,27 @@
       font-size: 1.7rem;
     }
 
-    #test-summary {
+    .summary {
       font-size: 1.1rem;
       margin-bottom: 16px;
       font-weight: 700;
+    }
+
+    .panel {
+      margin-top: 24px;
+      padding-top: 20px;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    h2 {
+      margin: 0 0 8px;
+      font-size: 1.15rem;
+    }
+
+    p.note {
+      margin: 0 0 14px;
+      color: rgba(231, 237, 247, 0.8);
+      line-height: 1.5;
     }
 
     ul {
@@ -61,8 +78,18 @@
 <body>
   <main>
     <h1>Graph Viewport Unit Tests</h1>
-    <p id="test-summary">Running tests...</p>
-    <ul id="test-results"></ul>
+    <section>
+      <h2>Contract Tests</h2>
+      <p class="note">These assert core viewport invariants directly from coordinate geometry and state transitions.</p>
+      <p id="contract-summary" class="summary">Running contract tests...</p>
+      <ul id="contract-results"></ul>
+    </section>
+    <section class="panel">
+      <h2>Adversarial Probes</h2>
+      <p class="note">These intentionally push edge cases that are likely to find flaws. If a weakness exists, it should fail here and stay visible.</p>
+      <p id="probe-summary" class="summary">Running adversarial probes...</p>
+      <ul id="probe-results"></ul>
+    </section>
   </main>
   <script src="GraphViewport.js"></script>
   <script src="graph-viewport-tests.js"></script>
