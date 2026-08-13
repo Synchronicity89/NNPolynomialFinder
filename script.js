@@ -4,11 +4,17 @@ const sampleCountInput = document.querySelector('#sample-count');
 const epochCountInput = document.querySelector('#epoch-count');
 const learningRateInput = document.querySelector('#learning-rate');
 const trainingProfileInput = document.querySelector('#training-profile');
+const modelDegreeInput = document.querySelector('#model-degree');
 const xMinInput = document.querySelector('#x-min');
 const xMaxInput = document.querySelector('#x-max');
 const randomizationInput = document.querySelector('#randomization');
 const integerModeInput = document.querySelector('#integer-mode');
 const integerMethodInput = document.querySelector('#integer-method');
+const assistTargetDegreeInput = document.querySelector('#assist-target-degree');
+const assistAutoIntegerInput = document.querySelector('#assist-auto-integer');
+const assistCandidateSelectionInput = document.querySelector('#assist-candidate-selection');
+const assistExactSolverInput = document.querySelector('#assist-exact-solver');
+const assistLocalSearchInput = document.querySelector('#assist-local-search');
 const trainButton = document.querySelector('#train-button');
 const statusText = document.querySelector('#status-text');
 const targetEquation = document.querySelector('#target-equation');
@@ -22,7 +28,7 @@ const zoomOutButton = document.querySelector('#zoom-out');
 const zoomResetButton = document.querySelector('#zoom-reset');
 const zoomLevelLabel = document.querySelector('#zoom-level');
 
-if (!form || !polynomialInput || !sampleCountInput || !epochCountInput || !learningRateInput || !trainingProfileInput || !xMinInput || !xMaxInput || !randomizationInput || !integerModeInput || !integerMethodInput || !trainButton || !statusText || !targetEquation || !discoveredEquation || !sampleSummary || !lossSummary || !canvas || !graphCoordinates || !zoomInButton || !zoomOutButton || !zoomResetButton || !zoomLevelLabel || !window.PolynomialFinder || !window.GraphViewport) {
+if (!form || !polynomialInput || !sampleCountInput || !epochCountInput || !learningRateInput || !trainingProfileInput || !modelDegreeInput || !xMinInput || !xMaxInput || !randomizationInput || !integerModeInput || !integerMethodInput || !assistTargetDegreeInput || !assistAutoIntegerInput || !assistCandidateSelectionInput || !assistExactSolverInput || !assistLocalSearchInput || !trainButton || !statusText || !targetEquation || !discoveredEquation || !sampleSummary || !lossSummary || !canvas || !graphCoordinates || !zoomInButton || !zoomOutButton || !zoomResetButton || !zoomLevelLabel || !window.PolynomialFinder || !window.GraphViewport) {
   throw new Error('Polynomial Finder UI did not initialize correctly.');
 }
 
@@ -38,6 +44,7 @@ const trainingProfileLabels = {
   'adaptive-rms': 'Adaptive step scaling',
   'adaptive-rms-simplicity': 'Adaptive scaling with simplicity bias',
 };
+const CHEAT_DEPENDENT_INTEGER_METHOD = 'post-train-local-search';
 const graphState = {
   target: null,
   model: null,
@@ -59,16 +66,107 @@ function getTrainingProfileLabel(profile) {
   return trainingProfileLabels[profile] || 'Adaptive step scaling';
 }
 
-function updateIntegerMethodAvailability() {
-  integerMethodInput.disabled = graphState.training || !integerModeInput.checked;
+function buildAssistSummary() {
+  const enabledAssists = [];
+
+  if (assistTargetDegreeInput.checked) {
+    enabledAssists.push('target degree');
+  }
+
+  if (assistAutoIntegerInput.checked) {
+    enabledAssists.push('auto integer mode');
+  }
+
+  if (assistCandidateSelectionInput.checked) {
+    enabledAssists.push('candidate selection');
+  }
+
+  if (exactSolverEnabled()) {
+    enabledAssists.push('exact solver');
+  }
+
+  if (localIntegerSearchEnabled()) {
+    enabledAssists.push('local integer search');
+  }
+
+  return enabledAssists.length === 0
+    ? 'Pure mode'
+    : `Assisted mode: ${enabledAssists.join(', ')}`;
 }
 
-function syncIntegerModeWithTarget(target) {
-  if (!graphState.integerModeUserOverride) {
-    integerModeInput.checked = target.hasIntegerCoefficients;
+function assistedCandidateSelectionEnabled() {
+  return assistCandidateSelectionInput.checked;
+}
+
+function exactSolverEnabled() {
+  return assistedCandidateSelectionEnabled() && assistExactSolverInput.checked;
+}
+
+function localIntegerSearchEnabled() {
+  return assistedCandidateSelectionEnabled() && assistLocalSearchInput.checked;
+}
+
+function updateIntegerMethodAvailability() {
+  const integerModeEnabled = integerModeInput.checked;
+  const localSearchOption = integerMethodInput.querySelector(`option[value="${CHEAT_DEPENDENT_INTEGER_METHOD}"]`);
+  const postTrainAllowed = integerModeEnabled && localIntegerSearchEnabled();
+
+  if (localSearchOption) {
+    localSearchOption.disabled = !postTrainAllowed;
+  }
+
+  if (!postTrainAllowed && integerMethodInput.value === CHEAT_DEPENDENT_INTEGER_METHOD) {
+    integerMethodInput.value = 'project-each-epoch';
+  }
+
+  integerMethodInput.disabled = graphState.training || !integerModeEnabled;
+}
+
+function updateAssistAvailability() {
+  const candidateSelectionEnabled = assistedCandidateSelectionEnabled();
+  const integerModeEnabled = integerModeInput.checked;
+
+  modelDegreeInput.disabled = graphState.training || assistTargetDegreeInput.checked;
+  assistExactSolverInput.disabled = graphState.training || !candidateSelectionEnabled;
+  assistLocalSearchInput.disabled = graphState.training || !candidateSelectionEnabled || !integerModeEnabled;
+
+  if (!candidateSelectionEnabled) {
+    assistExactSolverInput.checked = false;
+    assistLocalSearchInput.checked = false;
+  }
+
+  if ((!candidateSelectionEnabled || !assistLocalSearchInput.checked) && integerMethodInput.value === CHEAT_DEPENDENT_INTEGER_METHOD) {
+    integerMethodInput.value = 'project-each-epoch';
   }
 
   updateIntegerMethodAvailability();
+}
+
+function syncIntegerModeWithTarget(target) {
+  if (assistAutoIntegerInput.checked && !graphState.integerModeUserOverride) {
+    integerModeInput.checked = target.hasIntegerCoefficients;
+  }
+
+  if (assistTargetDegreeInput.checked) {
+    modelDegreeInput.value = String(target.degree);
+  }
+
+  updateAssistAvailability();
+  updateIntegerMethodAvailability();
+}
+
+function resolveModelDegree(target) {
+  if (assistTargetDegreeInput.checked) {
+    return target.degree;
+  }
+
+  const modelDegree = Number(modelDegreeInput.value);
+
+  if (!Number.isInteger(modelDegree) || modelDegree < 0) {
+    throw new Error('Set a whole-number model degree of 0 or greater.');
+  }
+
+  return modelDegree;
 }
 
 function updateZoomLabel() {
@@ -352,14 +450,20 @@ function updateSummary(target, model, loss, sampleCount) {
   const trainingProfile = graphState.trainingOptions?.trainingProfile
     ? ` | ${getTrainingProfileLabel(graphState.trainingOptions.trainingProfile)}`
     : '';
+  const modelDegree = graphState.trainingOptions?.modelDegree !== undefined
+    ? ` | model degree ${graphState.trainingOptions.modelDegree}`
+    : '';
   const coefficientThreshold = graphState.trainingOptions?.integerOnly ? 0 : 1e-5;
   const sampleRange = graphState.trainingOptions?.sampleRange || { min: -1, max: 1 };
   const randomization = graphState.trainingOptions?.randomization || 0;
   const randomizationText = randomization > 0 ? ` | randomization ${formatRangeValue(randomization)}` : '';
+  const assistSummary = graphState.trainingOptions?.assistSummary
+    ? ` | ${graphState.trainingOptions.assistSummary}`
+    : '';
 
   targetEquation.textContent = target ? window.PolynomialFinder.formatPolynomial(target.coefficients) : 'f(x) = 0';
   discoveredEquation.textContent = model ? window.PolynomialFinder.formatPolynomial(model.coefficients(coefficientThreshold)) : 'Waiting for training...';
-  sampleSummary.textContent = `${sampleCount} samples across x in [${formatRangeValue(sampleRange.min)}, ${formatRangeValue(sampleRange.max)}]${randomizationText} | ${trainingMode}${trainingProfile}`;
+  sampleSummary.textContent = `${sampleCount} samples across x in [${formatRangeValue(sampleRange.min)}, ${formatRangeValue(sampleRange.max)}]${randomizationText} | ${trainingMode}${trainingProfile}${modelDegree}${assistSummary}`;
   lossSummary.textContent = `Loss ${formatNumber(loss)}`;
 }
 
@@ -369,13 +473,15 @@ function setStatus(message) {
 
 async function trainModel(target, sampleCount, epochs, learningRate, trainingOptions) {
   const normalization = window.PolynomialFinder.createNormalization(trainingOptions.sampleRange);
-  const model = new window.PolynomialFinder.PolynomialModel(target.degree, normalization);
+  const model = new window.PolynomialFinder.PolynomialModel(trainingOptions.modelDegree, normalization);
   const samples = window.PolynomialFinder.createTrainingSamples(target.evaluate.bind(target), sampleCount, {
     range: trainingOptions.sampleRange,
     randomization: trainingOptions.randomization,
     normalization,
   });
-  const leastSquaresWeights = window.PolynomialFinder.solveLeastSquaresPolynomial(samples, target.degree, 'featureX');
+  const leastSquaresWeights = trainingOptions.useExactSolverAssist
+    ? window.PolynomialFinder.solveLeastSquaresPolynomial(samples, trainingOptions.modelDegree, 'featureX')
+    : null;
   const rangeSpan = trainingOptions.sampleRange.max - trainingOptions.sampleRange.min;
   const xPadding = Math.max(0.5, rangeSpan * 0.15);
 
@@ -418,23 +524,29 @@ async function trainModel(target, sampleCount, epochs, learningRate, trainingOpt
   }
 
   const modelDisplayWeights = model.coefficients(0);
-  const leastSquaresDisplayWeights = window.PolynomialFinder.modelToDisplayCoefficients(leastSquaresWeights, normalization);
   let finalDisplayWeights = modelDisplayWeights;
 
-  if (trainingOptions.integerOnly) {
-    if (trainingOptions.integerMethod === 'post-train-local-search') {
-      finalDisplayWeights = window.PolynomialFinder.bestCandidateWeights(samples, [
-        window.PolynomialFinder.localIntegerSearch(samples, modelDisplayWeights, { valueKey: 'x' }),
-        window.PolynomialFinder.localIntegerSearch(samples, leastSquaresDisplayWeights, { valueKey: 'x' }),
-      ], { valueKey: 'x' });
-    } else {
-      finalDisplayWeights = window.PolynomialFinder.bestCandidateWeights(samples, [
-        window.PolynomialFinder.roundWeights(modelDisplayWeights),
-        window.PolynomialFinder.roundWeights(leastSquaresDisplayWeights),
-      ], { valueKey: 'x' });
+  if (trainingOptions.assistedCandidateSelection) {
+    const candidates = [modelDisplayWeights];
+    const leastSquaresDisplayWeights = leastSquaresWeights
+      ? window.PolynomialFinder.modelToDisplayCoefficients(leastSquaresWeights, normalization)
+      : null;
+
+    if (trainingOptions.integerOnly) {
+      if (trainingOptions.integerMethod === CHEAT_DEPENDENT_INTEGER_METHOD && trainingOptions.useLocalIntegerSearchAssist) {
+        candidates.push(window.PolynomialFinder.localIntegerSearch(samples, modelDisplayWeights, { valueKey: 'x' }));
+
+        if (leastSquaresDisplayWeights) {
+          candidates.push(window.PolynomialFinder.localIntegerSearch(samples, leastSquaresDisplayWeights, { valueKey: 'x' }));
+        }
+      } else if (leastSquaresDisplayWeights) {
+        candidates.push(window.PolynomialFinder.roundWeights(leastSquaresDisplayWeights));
+      }
+    } else if (leastSquaresDisplayWeights) {
+      candidates.push(leastSquaresDisplayWeights);
     }
-  } else {
-    finalDisplayWeights = window.PolynomialFinder.bestCandidateWeights(samples, [modelDisplayWeights, leastSquaresDisplayWeights], { valueKey: 'x' });
+
+    finalDisplayWeights = window.PolynomialFinder.bestCandidateWeights(samples, candidates, { valueKey: 'x' });
   }
 
   model.applyDisplayWeights(finalDisplayWeights, true);
@@ -458,6 +570,7 @@ async function handleSubmit(event) {
   const epochs = Number(epochCountInput.value);
   const learningRate = Number(learningRateInput.value);
   const trainingProfile = trainingProfileInput.value;
+  const assistedCandidateSelection = assistedCandidateSelectionEnabled();
   const xMin = Number(xMinInput.value);
   const xMax = Number(xMaxInput.value);
   const randomization = Number(randomizationInput.value);
@@ -473,10 +586,16 @@ async function handleSubmit(event) {
 
     const target = window.PolynomialFinder.parsePolynomialExpression(expression);
     syncIntegerModeWithTarget(target);
+    const modelDegree = resolveModelDegree(target);
     const trainingOptions = {
       integerOnly: integerModeInput.checked,
       integerMethod: integerMethodInput.value,
       trainingProfile,
+      assistedCandidateSelection,
+      useExactSolverAssist: exactSolverEnabled(),
+      useLocalIntegerSearchAssist: localIntegerSearchEnabled(),
+      modelDegree,
+      assistSummary: buildAssistSummary(),
       sampleRange: { min: xMin, max: xMax },
       randomization,
     };
@@ -488,17 +607,24 @@ async function handleSubmit(event) {
     epochCountInput.disabled = true;
     learningRateInput.disabled = true;
     trainingProfileInput.disabled = true;
+    modelDegreeInput.disabled = true;
     xMinInput.disabled = true;
     xMaxInput.disabled = true;
     randomizationInput.disabled = true;
     integerModeInput.disabled = true;
+    assistTargetDegreeInput.disabled = true;
+    assistAutoIntegerInput.disabled = true;
+    assistCandidateSelectionInput.disabled = true;
+    assistExactSolverInput.disabled = true;
+    assistLocalSearchInput.disabled = true;
+    updateAssistAvailability();
     updateIntegerMethodAvailability();
     targetEquation.textContent = window.PolynomialFinder.formatPolynomial(target.coefficients);
     discoveredEquation.textContent = 'Training in progress...';
     setStatus(
       trainingOptions.integerOnly
-        ? `Generating samples and fitting the model with ${getIntegerMethodLabel(trainingOptions.integerMethod)} and ${getTrainingProfileLabel(trainingOptions.trainingProfile)}.`
-        : `Generating samples and fitting the model with ${getTrainingProfileLabel(trainingOptions.trainingProfile)}.`
+        ? `Generating samples and fitting the model with ${getIntegerMethodLabel(trainingOptions.integerMethod)}, ${getTrainingProfileLabel(trainingOptions.trainingProfile)}, model degree ${trainingOptions.modelDegree}, and ${trainingOptions.assistSummary.toLowerCase()}.`
+        : `Generating samples and fitting the model with ${getTrainingProfileLabel(trainingOptions.trainingProfile)}, model degree ${trainingOptions.modelDegree}, and ${trainingOptions.assistSummary.toLowerCase()}.`
     );
 
     await trainModel(target, sampleCount, epochs, learningRate, trainingOptions);
@@ -516,6 +642,13 @@ async function handleSubmit(event) {
     xMaxInput.disabled = false;
     randomizationInput.disabled = false;
     integerModeInput.disabled = false;
+    modelDegreeInput.disabled = false;
+    assistTargetDegreeInput.disabled = false;
+    assistAutoIntegerInput.disabled = false;
+    assistCandidateSelectionInput.disabled = false;
+    assistExactSolverInput.disabled = false;
+    assistLocalSearchInput.disabled = false;
+    updateAssistAvailability();
     updateIntegerMethodAvailability();
   }
 }
@@ -527,19 +660,45 @@ polynomialInput.addEventListener('input', () => {
     targetEquation.textContent = window.PolynomialFinder.formatPolynomial(target.coefficients);
     syncIntegerModeWithTarget(target);
   } catch {
-    if (!graphState.integerModeUserOverride) {
+    if (assistAutoIntegerInput.checked && !graphState.integerModeUserOverride) {
       integerModeInput.checked = false;
-      updateIntegerMethodAvailability();
     }
+
+    updateAssistAvailability();
+    updateIntegerMethodAvailability();
   }
 });
 integerModeInput.addEventListener('change', () => {
   graphState.integerModeUserOverride = true;
+  if (!integerModeInput.checked) {
+    assistLocalSearchInput.checked = false;
+  }
+  updateAssistAvailability();
   updateIntegerMethodAvailability();
 });
 integerMethodInput.addEventListener('change', () => {
   graphState.integerModeUserOverride = true;
 });
+assistTargetDegreeInput.addEventListener('change', () => {
+  try {
+    const target = window.PolynomialFinder.parsePolynomialExpression(polynomialInput.value.trim());
+    syncIntegerModeWithTarget(target);
+  } catch {
+    updateAssistAvailability();
+  }
+});
+assistAutoIntegerInput.addEventListener('change', () => {
+  graphState.integerModeUserOverride = false;
+  try {
+    const target = window.PolynomialFinder.parsePolynomialExpression(polynomialInput.value.trim());
+    syncIntegerModeWithTarget(target);
+  } catch {
+    updateAssistAvailability();
+  }
+});
+assistCandidateSelectionInput.addEventListener('change', updateAssistAvailability);
+assistExactSolverInput.addEventListener('change', updateAssistAvailability);
+assistLocalSearchInput.addEventListener('change', updateAssistAvailability);
 zoomInButton.addEventListener('click', () => {
   graphViewport.zoom(0.75);
   applyViewportChange();
@@ -574,10 +733,15 @@ window.addEventListener('resize', resizeCanvas);
 try {
   syncIntegerModeWithTarget(window.PolynomialFinder.parsePolynomialExpression(polynomialInput.value.trim()));
 } catch {
-  integerModeInput.checked = false;
+  if (assistAutoIntegerInput.checked) {
+    integerModeInput.checked = false;
+  }
+
+  updateAssistAvailability();
   updateIntegerMethodAvailability();
 }
 
+updateAssistAvailability();
 updateZoomLabel();
 resizeCanvas();
 handleSubmit(new Event('submit'));

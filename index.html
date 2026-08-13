@@ -67,6 +67,56 @@
           </label>
         </div>
 
+        <section class="assist-panel">
+          <p class="eyebrow">Optional Assists</p>
+          <div class="assist-grid">
+            <label class="field">
+              <span>Model degree</span>
+              <input id="model-degree" type="number" min="0" max="24" step="1" value="5" />
+            </label>
+
+            <label class="checkbox-field">
+              <input id="assist-target-degree" type="checkbox" />
+              <span>
+                <strong>Reveal target degree to the model</strong>
+                <small>When off, the model degree stays manual instead of peeking at the secret polynomial.</small>
+              </span>
+            </label>
+
+            <label class="checkbox-field">
+              <input id="assist-auto-integer" type="checkbox" />
+              <span>
+                <strong>Auto-match integer mode to the target</strong>
+                <small>When off, integer-only search remains fully manual.</small>
+              </span>
+            </label>
+
+            <label class="checkbox-field">
+              <input id="assist-candidate-selection" type="checkbox" />
+              <span>
+                <strong>Pick the best assisted candidate</strong>
+                <small>Allow helper fits to compete with the neural net after training.</small>
+              </span>
+            </label>
+
+            <label class="checkbox-field">
+              <input id="assist-exact-solver" type="checkbox" />
+              <span>
+                <strong>Allow exact least-squares assist</strong>
+                <small>Enable a closed-form polynomial fit as an extra assisted candidate.</small>
+              </span>
+            </label>
+
+            <label class="checkbox-field">
+              <input id="assist-local-search" type="checkbox" />
+              <span>
+                <strong>Allow post-train local integer search</strong>
+                <small>Enable integer neighborhood search when the post-train method is selected.</small>
+              </span>
+            </label>
+          </div>
+        </section>
+
         <div class="constraint-panel">
           <label class="checkbox-field">
             <input id="integer-mode" type="checkbox" checked />
@@ -79,9 +129,9 @@
           <label class="field method-field">
             <span>Integer enforcement method</span>
             <select id="integer-method">
-              <option value="project-each-epoch">Projected rounding every epoch</option>
+              <option value="project-each-epoch" selected>Projected rounding every epoch</option>
               <option value="annealed-bias">Progressive snapping during training</option>
-              <option value="post-train-local-search" selected>Round at the end, then local integer search</option>
+              <option value="post-train-local-search">Round at the end, then local integer search</option>
             </select>
           </label>
         </div>

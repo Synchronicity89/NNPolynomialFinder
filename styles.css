@@ -233,6 +233,25 @@ h1 {
   margin-top: 14px;
 }
 
+.assist-panel {
+  margin-top: 18px;
+  padding: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.assist-panel .eyebrow {
+  margin-bottom: 14px;
+}
+
+.assist-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  align-items: start;
+}
+
 .button-row {
   display: flex;
   flex-wrap: wrap;
@@ -426,6 +445,7 @@ button:disabled {
 
   .field-grid,
   .sample-config-grid,
+  .assist-grid,
   .results-grid {
     grid-template-columns: 1fr;
   }
