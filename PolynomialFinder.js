@@ -220,6 +220,21 @@
         return Float64Array.from(weights, (value) => Math.round(value));
     }
 
+    function gaussianRandom() {
+        let u = 0;
+        let v = 0;
+
+        while (u === 0) {
+            u = Math.random();
+        }
+
+        while (v === 0) {
+            v = Math.random();
+        }
+
+        return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+    }
+
     function solveLinearSystem(matrix, vector) {
         const size = vector.length;
         const augmented = matrix.map((row, rowIndex) => [...row, vector[rowIndex]]);
@@ -372,6 +387,9 @@
             this.firstMoments = new Float64Array(degree + 1);
             this.secondMoments = new Float64Array(degree + 1);
             this.adaptiveStepCount = 0;
+            this.previousLoss = null;
+            this.plateauStreak = 0;
+            this.lastTrainingEvent = null;
 
             for (let index = 0; index <= degree; index += 1) {
                 const initialWeight = (Math.random() - 0.5) * 0.01;
@@ -418,6 +436,10 @@
             this.applyWeights(roundWeights(this.weights), true);
         }
 
+        snapDisplayWeightsToIntegers() {
+            this.applyDisplayWeights(roundWeights(this.displayCoefficients()), true);
+        }
+
         applyDisplayWeights(displayWeights, syncShadowWeights = true) {
             this.applyWeights(displayToModelCoefficients(displayWeights, this.normalization), syncShadowWeights);
         }
@@ -431,16 +453,146 @@
             }
         }
 
+        applyStochasticPerturbation(targetWeights, options = {}) {
+            const noiseStdDev = options.noiseStdDev || 0;
+            const pulseEvery = options.pulseEvery || 0;
+            const pulseStdDev = options.pulseStdDev || 0;
+            const plateauKickThreshold = options.plateauKickThreshold || 0;
+            const plateauKickScale = options.plateauKickScale || 0;
+            const maxPlateauKick = options.maxPlateauKick || 0;
+            const activity = {
+                noiseStdDev,
+                pulseStdDev: 0,
+                plateauKickStdDev: 0,
+                plateauStreak: this.plateauStreak,
+            };
+
+            if (noiseStdDev > 0) {
+                for (let degree = 0; degree <= this.degree; degree += 1) {
+                    targetWeights[degree] += gaussianRandom() * noiseStdDev;
+                }
+            }
+
+            if (pulseEvery > 0 && pulseStdDev > 0 && this.adaptiveStepCount % pulseEvery === 0) {
+                activity.pulseStdDev = pulseStdDev;
+                for (let degree = 0; degree <= this.degree; degree += 1) {
+                    targetWeights[degree] += gaussianRandom() * pulseStdDev;
+                }
+            }
+
+            if (plateauKickThreshold > 0 && this.plateauStreak >= plateauKickThreshold && plateauKickScale > 0) {
+                const plateauPower = Math.min((this.plateauStreak - plateauKickThreshold + 1) * plateauKickScale, maxPlateauKick || plateauKickScale);
+                activity.plateauKickStdDev = plateauPower;
+
+                for (let degree = 0; degree <= this.degree; degree += 1) {
+                    targetWeights[degree] += gaussianRandom() * plateauPower;
+                }
+            }
+
+            return activity;
+        }
+
+        trainingProfileOptions(trainingProfile, meanLoss, epochProgress = 0) {
+            const progress = Math.max(0, Math.min(1, epochProgress));
+
+            if (trainingProfile === 'adaptive-rms-simplicity') {
+                return {
+                    beta1: 0.9,
+                    beta2: 0.999,
+                    weightDecay: 0.00015,
+                    simplicityBias: 0.0015,
+                    learningRateScale: 1,
+                    gradientClip: 8,
+                    noiseStdDev: 0,
+                };
+            }
+
+            if (trainingProfile === 'adaptive-rms-aggressive') {
+                const scheduledBoost = progress < 0.45
+                    ? 2.25 - progress * 2.2
+                    : progress < 0.85
+                        ? 1.35
+                        : 1.1;
+                const plateauBoost = this.plateauStreak > 0 ? Math.min(1 + this.plateauStreak * 0.12, 1.75) : 1;
+                const lossBoost = meanLoss > 1 ? 1.2 : meanLoss > 0.05 ? 1.08 : 1;
+
+                return {
+                    beta1: 0.82,
+                    beta2: 0.985,
+                    weightDecay: 0,
+                    simplicityBias: 0,
+                    learningRateScale: scheduledBoost * plateauBoost * lossBoost,
+                    gradientClip: 12,
+                    noiseStdDev: 0,
+                };
+            }
+
+            if (trainingProfile === 'adaptive-rms-annealed-noise') {
+                return {
+                    beta1: 0.88,
+                    beta2: 0.995,
+                    weightDecay: 0.00002,
+                    simplicityBias: 0,
+                    learningRateScale: 1.15,
+                    gradientClip: 10,
+                    noiseStdDev: 0.035 * (1 - progress) + 0.0025,
+                };
+            }
+
+            if (trainingProfile === 'adaptive-rms-pulse-kicks') {
+                return {
+                    beta1: 0.86,
+                    beta2: 0.992,
+                    weightDecay: 0.00002,
+                    simplicityBias: 0,
+                    learningRateScale: 1.18,
+                    gradientClip: 10,
+                    noiseStdDev: 0.004,
+                    pulseEvery: 28,
+                    pulseStdDev: 0.08 * (1 - progress * 0.6),
+                };
+            }
+
+            if (trainingProfile === 'adaptive-rms-plateau-escape') {
+                const lossScale = meanLoss > 0.5 ? 1.2 : meanLoss > 0.05 ? 1.05 : 1;
+                return {
+                    beta1: 0.84,
+                    beta2: 0.99,
+                    weightDecay: 0.00001,
+                    simplicityBias: 0,
+                    learningRateScale: 1.2 * lossScale,
+                    gradientClip: 11,
+                    noiseStdDev: 0.0015,
+                    plateauKickThreshold: 10,
+                    plateauKickScale: 0.01,
+                    maxPlateauKick: 0.16,
+                };
+            }
+
+            return {
+                beta1: 0.9,
+                beta2: 0.999,
+                weightDecay: 0.00005,
+                simplicityBias: 0,
+                learningRateScale: 1,
+                gradientClip: 8,
+                noiseStdDev: 0,
+            };
+        }
+
         applyAdaptiveGradients(gradients, learningRate, options = {}) {
             const beta1 = options.beta1 || 0.9;
             const beta2 = options.beta2 || 0.999;
             const epsilon = options.epsilon || 1e-8;
             const weightDecay = options.weightDecay || 0;
             const simplicityBias = options.simplicityBias || 0;
+            const gradientClip = options.gradientClip || 0;
+            const learningRateScale = options.learningRateScale || 1;
             const applyToShadowWeights = options.applyToShadowWeights || false;
             const progress = Math.max(0, Math.min(1, options.epochProgress || 0));
             const decayRamp = 1 - progress * 0.35;
             const targetWeights = applyToShadowWeights ? this.shadowWeights : this.weights;
+            const effectiveLearningRate = learningRate * learningRateScale;
 
             this.adaptiveStepCount += 1;
             const biasCorrection1 = 1 - Math.pow(beta1, this.adaptiveStepCount);
@@ -454,30 +606,40 @@
                     gradient += targetWeights[degree] * simplicityBias * degreeScale * decayRamp;
                 }
 
+                if (gradientClip > 0) {
+                    gradient = Math.max(-gradientClip, Math.min(gradientClip, gradient));
+                }
+
                 this.firstMoments[degree] = beta1 * this.firstMoments[degree] + (1 - beta1) * gradient;
                 this.secondMoments[degree] = beta2 * this.secondMoments[degree] + (1 - beta2) * gradient * gradient;
 
                 const correctedFirstMoment = this.firstMoments[degree] / biasCorrection1;
                 const correctedSecondMoment = this.secondMoments[degree] / biasCorrection2;
-                targetWeights[degree] -= learningRate * correctedFirstMoment / (Math.sqrt(correctedSecondMoment) + epsilon);
+                targetWeights[degree] -= effectiveLearningRate * correctedFirstMoment / (Math.sqrt(correctedSecondMoment) + epsilon);
             }
+
+            const stochasticActivity = this.applyStochasticPerturbation(targetWeights, options);
 
             if (applyToShadowWeights) {
                 this.applyWeights(roundWeights(this.shadowWeights));
-                return;
+                return stochasticActivity;
             }
 
             for (let degree = 0; degree <= this.degree; degree += 1) {
                 this.shadowWeights[degree] = this.weights[degree];
             }
+
+            return stochasticActivity;
         }
 
         trainEpoch(samples, learningRate, options = {}) {
             const gradients = new Float64Array(this.degree + 1);
             let loss = 0;
             const useProjectedWeights = options.integerMethod === 'project-each-epoch';
+            const strictIntegerWeights = options.strictIntegerWeights === true;
             const activeWeights = useProjectedWeights ? roundWeights(this.shadowWeights) : this.weights;
             const trainingProfile = options.trainingProfile || 'standard-sgd';
+            let stochasticActivity = null;
 
             for (const sample of samples) {
                 const predicted = this.predictFeatureWithWeights(sample.featureX, activeWeights);
@@ -491,13 +653,22 @@
                 }
             }
 
+            const meanLoss = loss / samples.length;
+
+            if (this.previousLoss !== null) {
+                this.plateauStreak = meanLoss > this.previousLoss * 0.995 ? this.plateauStreak + 1 : 0;
+            }
+
+            const adaptiveOptions = trainingProfile === 'standard-sgd'
+                ? null
+                : this.trainingProfileOptions(trainingProfile, meanLoss, options.epochProgress || 0);
+
             if (useProjectedWeights) {
-                if (trainingProfile === 'adaptive-rms' || trainingProfile === 'adaptive-rms-simplicity') {
-                    this.applyAdaptiveGradients(gradients, learningRate, {
+                if (adaptiveOptions) {
+                    stochasticActivity = this.applyAdaptiveGradients(gradients, learningRate, {
                         applyToShadowWeights: true,
                         epochProgress: options.epochProgress,
-                        simplicityBias: trainingProfile === 'adaptive-rms-simplicity' ? 0.0015 : 0,
-                        weightDecay: trainingProfile === 'adaptive-rms-simplicity' ? 0.00015 : 0.00005,
+                        ...adaptiveOptions,
                     });
                 } else {
                     for (let degree = 0; degree <= this.degree; degree += 1) {
@@ -507,11 +678,10 @@
                     this.applyWeights(roundWeights(this.shadowWeights));
                 }
             } else if (options.integerMethod === 'annealed-bias') {
-                if (trainingProfile === 'adaptive-rms' || trainingProfile === 'adaptive-rms-simplicity') {
-                    this.applyAdaptiveGradients(gradients, learningRate, {
+                if (adaptiveOptions) {
+                    stochasticActivity = this.applyAdaptiveGradients(gradients, learningRate, {
                         epochProgress: options.epochProgress,
-                        simplicityBias: trainingProfile === 'adaptive-rms-simplicity' ? 0.0015 : 0,
-                        weightDecay: trainingProfile === 'adaptive-rms-simplicity' ? 0.00015 : 0.00005,
+                        ...adaptiveOptions,
                     });
                 } else {
                     for (let degree = 0; degree <= this.degree; degree += 1) {
@@ -523,11 +693,10 @@
                 const pullStrength = 0.04 + progress * 0.24;
                 this.pullWeightsTowardIntegers(pullStrength);
             } else {
-                if (trainingProfile === 'adaptive-rms' || trainingProfile === 'adaptive-rms-simplicity') {
-                    this.applyAdaptiveGradients(gradients, learningRate, {
+                if (adaptiveOptions) {
+                    stochasticActivity = this.applyAdaptiveGradients(gradients, learningRate, {
                         epochProgress: options.epochProgress,
-                        simplicityBias: trainingProfile === 'adaptive-rms-simplicity' ? 0.0015 : 0,
-                        weightDecay: trainingProfile === 'adaptive-rms-simplicity' ? 0.00015 : 0.00005,
+                        ...adaptiveOptions,
                     });
                 } else {
                     for (let degree = 0; degree <= this.degree; degree += 1) {
@@ -537,7 +706,13 @@
                 }
             }
 
-            return loss / samples.length;
+            if (strictIntegerWeights) {
+                this.snapDisplayWeightsToIntegers();
+            }
+
+            this.lastTrainingEvent = stochasticActivity;
+            this.previousLoss = meanLoss;
+            return meanLoss;
         }
 
         coefficients(threshold = 1e-5) {

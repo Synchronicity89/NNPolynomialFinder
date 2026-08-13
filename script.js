@@ -10,6 +10,7 @@ const xMaxInput = document.querySelector('#x-max');
 const randomizationInput = document.querySelector('#randomization');
 const integerModeInput = document.querySelector('#integer-mode');
 const integerMethodInput = document.querySelector('#integer-method');
+const strictIntegerWeightsInput = document.querySelector('#strict-integer-weights');
 const assistTargetDegreeInput = document.querySelector('#assist-target-degree');
 const assistAutoIntegerInput = document.querySelector('#assist-auto-integer');
 const assistCandidateSelectionInput = document.querySelector('#assist-candidate-selection');
@@ -28,7 +29,7 @@ const zoomOutButton = document.querySelector('#zoom-out');
 const zoomResetButton = document.querySelector('#zoom-reset');
 const zoomLevelLabel = document.querySelector('#zoom-level');
 
-if (!form || !polynomialInput || !sampleCountInput || !epochCountInput || !learningRateInput || !trainingProfileInput || !modelDegreeInput || !xMinInput || !xMaxInput || !randomizationInput || !integerModeInput || !integerMethodInput || !assistTargetDegreeInput || !assistAutoIntegerInput || !assistCandidateSelectionInput || !assistExactSolverInput || !assistLocalSearchInput || !trainButton || !statusText || !targetEquation || !discoveredEquation || !sampleSummary || !lossSummary || !canvas || !graphCoordinates || !zoomInButton || !zoomOutButton || !zoomResetButton || !zoomLevelLabel || !window.PolynomialFinder || !window.GraphViewport) {
+if (!form || !polynomialInput || !sampleCountInput || !epochCountInput || !learningRateInput || !trainingProfileInput || !modelDegreeInput || !xMinInput || !xMaxInput || !randomizationInput || !integerModeInput || !integerMethodInput || !strictIntegerWeightsInput || !assistTargetDegreeInput || !assistAutoIntegerInput || !assistCandidateSelectionInput || !assistExactSolverInput || !assistLocalSearchInput || !trainButton || !statusText || !targetEquation || !discoveredEquation || !sampleSummary || !lossSummary || !canvas || !graphCoordinates || !zoomInButton || !zoomOutButton || !zoomResetButton || !zoomLevelLabel || !window.PolynomialFinder || !window.GraphViewport) {
   throw new Error('Polynomial Finder UI did not initialize correctly.');
 }
 
@@ -42,6 +43,10 @@ const integerMethodLabels = {
 const trainingProfileLabels = {
   'standard-sgd': 'Standard SGD',
   'adaptive-rms': 'Adaptive step scaling',
+  'adaptive-rms-aggressive': 'Aggressive adaptive descent',
+  'adaptive-rms-annealed-noise': 'Adaptive descent with annealed noise',
+  'adaptive-rms-pulse-kicks': 'Adaptive descent with pulse kicks',
+  'adaptive-rms-plateau-escape': 'Adaptive descent with plateau escape',
   'adaptive-rms-simplicity': 'Adaptive scaling with simplicity bias',
 };
 const CHEAT_DEPENDENT_INTEGER_METHOD = 'post-train-local-search';
@@ -120,6 +125,11 @@ function updateIntegerMethodAvailability() {
   }
 
   integerMethodInput.disabled = graphState.training || !integerModeEnabled;
+  strictIntegerWeightsInput.disabled = graphState.training || !integerModeEnabled;
+
+  if (!integerModeEnabled) {
+    strictIntegerWeightsInput.checked = false;
+  }
 }
 
 function updateAssistAvailability() {
@@ -453,6 +463,9 @@ function updateSummary(target, model, loss, sampleCount) {
   const modelDegree = graphState.trainingOptions?.modelDegree !== undefined
     ? ` | model degree ${graphState.trainingOptions.modelDegree}`
     : '';
+  const strictIntegerWeights = graphState.trainingOptions?.strictIntegerWeights
+    ? ' | strict integer weights'
+    : '';
   const coefficientThreshold = graphState.trainingOptions?.integerOnly ? 0 : 1e-5;
   const sampleRange = graphState.trainingOptions?.sampleRange || { min: -1, max: 1 };
   const randomization = graphState.trainingOptions?.randomization || 0;
@@ -463,12 +476,34 @@ function updateSummary(target, model, loss, sampleCount) {
 
   targetEquation.textContent = target ? window.PolynomialFinder.formatPolynomial(target.coefficients) : 'f(x) = 0';
   discoveredEquation.textContent = model ? window.PolynomialFinder.formatPolynomial(model.coefficients(coefficientThreshold)) : 'Waiting for training...';
-  sampleSummary.textContent = `${sampleCount} samples across x in [${formatRangeValue(sampleRange.min)}, ${formatRangeValue(sampleRange.max)}]${randomizationText} | ${trainingMode}${trainingProfile}${modelDegree}${assistSummary}`;
+  sampleSummary.textContent = `${sampleCount} samples across x in [${formatRangeValue(sampleRange.min)}, ${formatRangeValue(sampleRange.max)}]${randomizationText} | ${trainingMode}${trainingProfile}${modelDegree}${strictIntegerWeights}${assistSummary}`;
   lossSummary.textContent = `Loss ${formatNumber(loss)}`;
 }
 
 function setStatus(message) {
   statusText.textContent = message;
+}
+
+function getStochasticStatusHint(model, trainingProfile) {
+  const event = model?.lastTrainingEvent;
+
+  if (!event) {
+    return '';
+  }
+
+  if (event.plateauKickStdDev > 0) {
+    return ` | plateau escape ${formatNumber(event.plateauKickStdDev)} at streak ${event.plateauStreak}`;
+  }
+
+  if (event.pulseStdDev > 0) {
+    return ` | pulse kick ${formatNumber(event.pulseStdDev)}`;
+  }
+
+  if (trainingProfile === 'adaptive-rms-annealed-noise' && event.noiseStdDev > 0) {
+    return ` | exploration noise ${formatNumber(event.noiseStdDev)}`;
+  }
+
+  return '';
 }
 
 async function trainModel(target, sampleCount, epochs, learningRate, trainingOptions) {
@@ -505,6 +540,7 @@ async function trainModel(target, sampleCount, epochs, learningRate, trainingOpt
   for (let epoch = 0; epoch < epochs; epoch += 1) {
     const loss = model.trainEpoch(samples, learningRate, {
       integerMethod: trainingOptions.integerOnly ? trainingOptions.integerMethod : 'continuous',
+      strictIntegerWeights: trainingOptions.strictIntegerWeights,
       trainingProfile: trainingOptions.trainingProfile,
       epochProgress: epochs <= 1 ? 1 : epoch / (epochs - 1),
     });
@@ -513,7 +549,7 @@ async function trainModel(target, sampleCount, epochs, learningRate, trainingOpt
 
     if (epoch % 12 === 0 || epoch === epochs - 1) {
       updateSummary(target, model, loss, sampleCount);
-      setStatus(`Epoch ${epoch + 1} of ${epochs} | loss ${formatNumber(loss)}`);
+      setStatus(`Epoch ${epoch + 1} of ${epochs} | loss ${formatNumber(loss)}${getStochasticStatusHint(model, trainingOptions.trainingProfile)}`);
       renderGraph();
       await new Promise((resolve) => window.requestAnimationFrame(resolve));
     }
@@ -547,6 +583,10 @@ async function trainModel(target, sampleCount, epochs, learningRate, trainingOpt
     }
 
     finalDisplayWeights = window.PolynomialFinder.bestCandidateWeights(samples, candidates, { valueKey: 'x' });
+  }
+
+  if (trainingOptions.strictIntegerWeights) {
+    finalDisplayWeights = window.PolynomialFinder.roundWeights(finalDisplayWeights);
   }
 
   model.applyDisplayWeights(finalDisplayWeights, true);
@@ -590,6 +630,7 @@ async function handleSubmit(event) {
     const trainingOptions = {
       integerOnly: integerModeInput.checked,
       integerMethod: integerMethodInput.value,
+      strictIntegerWeights: integerModeInput.checked && strictIntegerWeightsInput.checked,
       trainingProfile,
       assistedCandidateSelection,
       useExactSolverAssist: exactSolverEnabled(),
@@ -623,7 +664,7 @@ async function handleSubmit(event) {
     discoveredEquation.textContent = 'Training in progress...';
     setStatus(
       trainingOptions.integerOnly
-        ? `Generating samples and fitting the model with ${getIntegerMethodLabel(trainingOptions.integerMethod)}, ${getTrainingProfileLabel(trainingOptions.trainingProfile)}, model degree ${trainingOptions.modelDegree}, and ${trainingOptions.assistSummary.toLowerCase()}.`
+        ? `Generating samples and fitting the model with ${getIntegerMethodLabel(trainingOptions.integerMethod)}, ${getTrainingProfileLabel(trainingOptions.trainingProfile)}, model degree ${trainingOptions.modelDegree}${trainingOptions.strictIntegerWeights ? ', strict integer weights' : ''}, and ${trainingOptions.assistSummary.toLowerCase()}.`
         : `Generating samples and fitting the model with ${getTrainingProfileLabel(trainingOptions.trainingProfile)}, model degree ${trainingOptions.modelDegree}, and ${trainingOptions.assistSummary.toLowerCase()}.`
     );
 
@@ -675,6 +716,11 @@ integerModeInput.addEventListener('change', () => {
   }
   updateAssistAvailability();
   updateIntegerMethodAvailability();
+});
+strictIntegerWeightsInput.addEventListener('change', () => {
+  if (!integerModeInput.checked) {
+    strictIntegerWeightsInput.checked = false;
+  }
 });
 integerMethodInput.addEventListener('change', () => {
   graphState.integerModeUserOverride = true;

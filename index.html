@@ -47,10 +47,19 @@
             <select id="training-profile">
               <option value="standard-sgd">Standard SGD</option>
               <option value="adaptive-rms" selected>Adaptive step scaling</option>
+              <option value="adaptive-rms-aggressive">Aggressive adaptive descent</option>
+              <option value="adaptive-rms-annealed-noise">Adaptive descent + annealed noise</option>
+              <option value="adaptive-rms-pulse-kicks">Adaptive descent + pulse kicks</option>
+              <option value="adaptive-rms-plateau-escape">Adaptive descent + plateau escape</option>
               <option value="adaptive-rms-simplicity">Adaptive scaling + simplicity bias</option>
             </select>
           </label>
         </div>
+        <p class="training-profile-note">
+          `Standard SGD`, `Adaptive step scaling`, `Aggressive adaptive descent`, and `Adaptive scaling + simplicity bias`
+          are deterministic. `Annealed noise`, `Pulse kicks`, and `Plateau escape` inject stochastic exploration, with
+          `Plateau escape` increasing its push when loss stalls above zero.
+        </p>
 
         <div class="sample-config-grid">
           <label class="field">
@@ -135,6 +144,14 @@
             </select>
           </label>
         </div>
+
+        <label class="checkbox-field strict-integer-field">
+          <input id="strict-integer-weights" type="checkbox" />
+          <span>
+            <strong>Force weights to stay integer at all times</strong>
+            <small>Round the live weights after every training update so the model never carries fractional coefficients internally.</small>
+          </span>
+        </label>
 
         <div class="button-row">
           <button id="train-button" type="submit">Generate and train</button>
