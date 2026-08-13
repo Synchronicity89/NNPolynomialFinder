@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Polynomial Finder</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main class="app-shell">
+    <section class="intro-panel card">
+      <p class="eyebrow">Polynomial Neural Network</p>
+      <h1>Type a polynomial, watch the model learn it, and compare the curves as training runs.</h1>
+      <p class="lead">
+        The page generates training samples from your expression, fits a polynomial model, and redraws the
+        current best guess every few epochs until it locks onto the target.
+      </p>
+      <div class="pill-row">
+        <span class="pill">Interactive graph</span>
+        <span class="pill">Training data</span>
+        <span class="pill">Live coefficient updates</span>
+      </div>
+    </section>
+
+    <section class="workspace">
+      <form id="control-form" class="card control-panel">
+        <label class="field field-wide">
+          <span>Target polynomial</span>
+          <textarea id="polynomial-input" rows="2">3 + 2x - 5x^3</textarea>
+        </label>
+
+        <div class="field-grid">
+          <label class="field">
+            <span>Training samples</span>
+            <input id="sample-count" type="number" min="16" max="400" step="1" value="96" />
+          </label>
+          <label class="field">
+            <span>Epochs</span>
+            <input id="epoch-count" type="number" min="50" max="20000" step="50" value="1800" />
+          </label>
+          <label class="field">
+            <span>Learning rate</span>
+            <input id="learning-rate" type="number" min="0.001" max="0.2" step="0.001" value="0.045" />
+          </label>
+        </div>
+
+        <div class="sample-config-grid">
+          <label class="field">
+            <span>X minimum</span>
+            <input id="x-min" type="number" min="-50" max="50" step="0.1" value="-1" />
+          </label>
+          <label class="field">
+            <span>X maximum</span>
+            <input id="x-max" type="number" min="-50" max="50" step="0.1" value="1" />
+          </label>
+          <label class="field">
+            <span>Randomization</span>
+            <input id="randomization" type="number" min="0" max="1" step="0.01" value="0" />
+          </label>
+        </div>
+
+        <div class="constraint-panel">
+          <label class="checkbox-field">
+            <input id="integer-mode" type="checkbox" checked />
+            <span>
+              <strong>Integer-only search</strong>
+              <small>Keep the discovered coefficients whole-number only. Exponents are already restricted to whole-number powers.</small>
+            </span>
+          </label>
+
+          <label class="field method-field">
+            <span>Integer enforcement method</span>
+            <select id="integer-method">
+              <option value="project-each-epoch">Projected rounding every epoch</option>
+              <option value="annealed-bias">Progressive snapping during training</option>
+              <option value="post-train-local-search" selected>Round at the end, then local integer search</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="button-row">
+          <button id="train-button" type="submit">Generate and train</button>
+          <p id="status-text" class="status" aria-live="polite"></p>
+        </div>
+      </form>
+
+      <section class="card graph-panel">
+        <div class="graph-header">
+          <div>
+            <p class="eyebrow">Model vs. target</p>
+            <h2>Graph</h2>
+          </div>
+          <div class="graph-tools">
+            <div class="graph-legend" aria-label="Graph legend">
+              <span><i class="swatch swatch-target"></i> Target</span>
+              <span><i class="swatch swatch-model"></i> Model</span>
+              <span><i class="swatch swatch-data"></i> Samples</span>
+            </div>
+            <div class="zoom-controls" aria-label="Graph zoom controls">
+              <button id="zoom-out" class="zoom-button" type="button">-</button>
+              <span id="zoom-level" class="zoom-level">100%</span>
+              <button id="zoom-in" class="zoom-button" type="button">+</button>
+              <button id="zoom-reset" class="zoom-reset" type="button">Reset</button>
+            </div>
+          </div>
+        </div>
+        <canvas id="graph-canvas" width="960" height="560" aria-label="Polynomial comparison chart"></canvas>
+      </section>
+
+      <section class="results-grid">
+        <article class="card result-card">
+          <p class="eyebrow">Target</p>
+          <p id="target-equation" class="equation">f(x) = 3 + 2x - 5x^3</p>
+        </article>
+        <article class="card result-card">
+          <p class="eyebrow">Discovered</p>
+          <p id="discovered-equation" class="equation">Waiting for training...</p>
+        </article>
+        <article class="card result-card compact">
+          <p class="eyebrow">Training data</p>
+          <p id="sample-summary" class="equation">96 samples across x in [-1, 1]</p>
+        </article>
+        <article class="card result-card compact">
+          <p class="eyebrow">Loss</p>
+          <p id="loss-summary" class="equation">0.0000</p>
+        </article>
+      </section>
+    </section>
+  </main>
+  <script src="PolynomialFinder.js"></script>
+  <script src="GraphViewport.js"></script>
+  <script src="script.js"></script>
+</body>
+</html>

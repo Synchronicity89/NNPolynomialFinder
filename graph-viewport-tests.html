@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Graph Viewport Tests</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: "Segoe UI", sans-serif;
+      background: #0b1020;
+      color: #e7edf7;
+    }
+
+    body {
+      margin: 0;
+      padding: 32px;
+      background: radial-gradient(circle at top, rgba(72, 187, 120, 0.18), transparent 35%), #0b1020;
+    }
+
+    main {
+      max-width: 900px;
+      margin: 0 auto;
+      background: rgba(10, 16, 30, 0.9);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 18px;
+      padding: 24px;
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
+    }
+
+    h1 {
+      margin-top: 0;
+      font-size: 1.7rem;
+    }
+
+    #test-summary {
+      font-size: 1.1rem;
+      margin-bottom: 16px;
+      font-weight: 700;
+    }
+
+    ul {
+      margin: 0;
+      padding-left: 20px;
+    }
+
+    li {
+      margin: 0 0 10px;
+      line-height: 1.45;
+    }
+
+    .pass {
+      color: #7ee787;
+    }
+
+    .fail {
+      color: #ff7b72;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Graph Viewport Unit Tests</h1>
+    <p id="test-summary">Running tests...</p>
+    <ul id="test-results"></ul>
+  </main>
+  <script src="GraphViewport.js"></script>
+  <script src="graph-viewport-tests.js"></script>
+</body>
+</html>
